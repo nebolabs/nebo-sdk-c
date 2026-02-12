@@ -1,0 +1,10 @@
+{
+    "id": "com.example.calculator",
+    "name": "Calculator",
+    "version": "1.0.0",
+    "description": "Arithmetic calculator tool for the agent",
+    "runtime": "local",
+    "protocol": "grpc",
+    "provides": ["tool:calculator"],
+    "permissions": []
+}
