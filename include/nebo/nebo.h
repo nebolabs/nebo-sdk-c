@@ -3,7 +3,10 @@
 
 #include "tool.h"
 #include "channel.h"
+#include "gateway.h"
 #include "ui.h"
+#include "comm.h"
+#include "schedule.h"
 #include "types.h"
 #include "schema.h"
 
@@ -31,8 +34,17 @@ void nebo_app_register_tool(nebo_app_t *app, const nebo_tool_handler_t *handler)
 /** Register a channel capability handler. */
 void nebo_app_register_channel(nebo_app_t *app, const nebo_channel_handler_t *handler);
 
+/** Register a gateway capability handler. */
+void nebo_app_register_gateway(nebo_app_t *app, const nebo_gateway_handler_t *handler);
+
 /** Register a UI capability handler. */
 void nebo_app_register_ui(nebo_app_t *app, const nebo_ui_handler_t *handler);
+
+/** Register a comm capability handler. */
+void nebo_app_register_comm(nebo_app_t *app, const nebo_comm_handler_t *handler);
+
+/** Register a schedule capability handler. */
+void nebo_app_register_schedule(nebo_app_t *app, const nebo_schedule_handler_t *handler);
 
 /** Set a callback for settings updates from Nebo. */
 void nebo_app_on_configure(nebo_app_t *app, void (*callback)(const nebo_string_map_t *settings));

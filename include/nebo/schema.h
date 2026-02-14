@@ -25,6 +25,15 @@ nebo_schema_builder_t *nebo_schema_number(nebo_schema_builder_t *b, const char *
 /** Add a boolean parameter. */
 nebo_schema_builder_t *nebo_schema_bool(nebo_schema_builder_t *b, const char *name, const char *desc, int required);
 
+/** Add a string enum parameter. values is a NULL-terminated array of allowed values. */
+nebo_schema_builder_t *nebo_schema_enum(nebo_schema_builder_t *b, const char *name,
+                                         const char *desc, int required,
+                                         const char **values);
+
+/** Add an object parameter. */
+nebo_schema_builder_t *nebo_schema_object(nebo_schema_builder_t *b, const char *name,
+                                           const char *desc, int required);
+
 /** Build the JSON Schema string. Caller must free() the returned string. */
 char *nebo_schema_build(nebo_schema_builder_t *b);
 

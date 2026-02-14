@@ -1,12 +1,5 @@
 /**
  * Nebo C SDK — app lifecycle and environment.
- *
- * NOTE: The gRPC server implementation requires linking against grpc and protobuf.
- * This file provides the app lifecycle, environment access, and schema builder.
- * The gRPC bridge layer (tool_bridge.c, etc.) is generated from proto files.
- *
- * For a complete working implementation, build with CMake which handles
- * proto generation and linking automatically.
  */
 
 #include <stdlib.h>
@@ -14,21 +7,7 @@
 #include <stdio.h>
 #include <signal.h>
 
-#include "nebo/nebo.h"
-
-struct nebo_app {
-    char *dir;
-    char *sock_path;
-    char *id;
-    char *name;
-    char *version;
-    char *data_dir;
-
-    const nebo_tool_handler_t *tool;
-    const nebo_channel_handler_t *channel;
-    const nebo_ui_handler_t *ui;
-    void (*on_configure)(const nebo_string_map_t *settings);
-};
+#include "internal.h"
 
 static char *safe_getenv(const char *name) {
     const char *val = getenv(name);
@@ -57,8 +36,20 @@ void nebo_app_register_channel(nebo_app_t *app, const nebo_channel_handler_t *ha
     if (app) app->channel = handler;
 }
 
+void nebo_app_register_gateway(nebo_app_t *app, const nebo_gateway_handler_t *handler) {
+    if (app) app->gateway = handler;
+}
+
 void nebo_app_register_ui(nebo_app_t *app, const nebo_ui_handler_t *handler) {
     if (app) app->ui = handler;
+}
+
+void nebo_app_register_comm(nebo_app_t *app, const nebo_comm_handler_t *handler) {
+    if (app) app->comm = handler;
+}
+
+void nebo_app_register_schedule(nebo_app_t *app, const nebo_schedule_handler_t *handler) {
+    if (app) app->schedule = handler;
 }
 
 void nebo_app_on_configure(nebo_app_t *app, void (*callback)(const nebo_string_map_t *settings)) {
@@ -83,15 +74,6 @@ void nebo_app_free(nebo_app_t *app) {
     free(app);
 }
 
-/*
- * nebo_app_run() — the gRPC server entry point.
- *
- * A full implementation requires the gRPC C++ core library and protobuf-generated
- * service stubs. The CMakeLists.txt handles proto generation and linking.
- *
- * This stub validates the environment and prints a diagnostic message.
- * See the CMakeLists.txt for the complete build that includes gRPC.
- */
 int nebo_app_run(nebo_app_t *app) {
     if (!app) return 1;
 
@@ -101,22 +83,17 @@ int nebo_app_run(nebo_app_t *app) {
         return 1;
     }
 
-    if (!app->tool && !app->channel && !app->ui) {
+    if (!app->tool && !app->channel && !app->gateway &&
+        !app->ui && !app->comm && !app->schedule) {
         fprintf(stderr, "No handlers registered\n");
         nebo_app_free(app);
         return 1;
     }
 
-    fprintf(stderr, "[%s] C SDK app ready (sock=%s)\n", app->name, app->sock_path);
-    fprintf(stderr, "[%s] Note: link against grpc++ and protobuf for full gRPC server\n", app->name);
+    fprintf(stderr, "[%s] listening on %s\n", app->name, app->sock_path);
 
-    /* In a full implementation, this would:
-     * 1. Create a gRPC server
-     * 2. Register service implementations (tool, channel, ui bridges)
-     * 3. Listen on the Unix socket
-     * 4. Block until SIGTERM
-     */
+    int ret = nebo_grpc_serve(app);
 
     nebo_app_free(app);
-    return 0;
+    return ret;
 }

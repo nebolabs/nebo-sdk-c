@@ -13,12 +13,15 @@
 
 #define MAX_PROPS 32
 #define MAX_ACTIONS 16
+#define MAX_ENUM_VALUES 32
 
 typedef struct {
     char *name;
     char *desc;
     char *type;
     int required;
+    char **enum_values; /* NULL if not an enum */
+    int enum_count;
 } schema_prop_t;
 
 struct nebo_schema_builder {
@@ -39,33 +42,62 @@ nebo_schema_builder_t *nebo_schema_new(const char **actions) {
     return b;
 }
 
-static nebo_schema_builder_t *add_prop(nebo_schema_builder_t *b, const char *name, const char *desc, const char *type, int required) {
+static nebo_schema_builder_t *add_prop(nebo_schema_builder_t *b, const char *name,
+                                        const char *desc, const char *type, int required) {
     if (!b || b->prop_count >= MAX_PROPS) return b;
     schema_prop_t *p = &b->props[b->prop_count++];
     p->name = strdup(name);
     p->desc = strdup(desc);
     p->type = strdup(type);
     p->required = required;
+    p->enum_values = NULL;
+    p->enum_count = 0;
     return b;
 }
 
-nebo_schema_builder_t *nebo_schema_string(nebo_schema_builder_t *b, const char *name, const char *desc, int required) {
+nebo_schema_builder_t *nebo_schema_string(nebo_schema_builder_t *b, const char *name,
+                                           const char *desc, int required) {
     return add_prop(b, name, desc, "string", required);
 }
 
-nebo_schema_builder_t *nebo_schema_number(nebo_schema_builder_t *b, const char *name, const char *desc, int required) {
+nebo_schema_builder_t *nebo_schema_number(nebo_schema_builder_t *b, const char *name,
+                                           const char *desc, int required) {
     return add_prop(b, name, desc, "number", required);
 }
 
-nebo_schema_builder_t *nebo_schema_bool(nebo_schema_builder_t *b, const char *name, const char *desc, int required) {
+nebo_schema_builder_t *nebo_schema_bool(nebo_schema_builder_t *b, const char *name,
+                                         const char *desc, int required) {
     return add_prop(b, name, desc, "boolean", required);
+}
+
+nebo_schema_builder_t *nebo_schema_enum(nebo_schema_builder_t *b, const char *name,
+                                         const char *desc, int required,
+                                         const char **values) {
+    if (!b || b->prop_count >= MAX_PROPS) return b;
+    schema_prop_t *p = &b->props[b->prop_count++];
+    p->name = strdup(name);
+    p->desc = strdup(desc);
+    p->type = strdup("string");
+    p->required = required;
+
+    int count = 0;
+    for (int i = 0; values && values[i] && i < MAX_ENUM_VALUES; i++) count++;
+    p->enum_values = malloc((count + 1) * sizeof(char *));
+    for (int i = 0; i < count; i++) p->enum_values[i] = strdup(values[i]);
+    p->enum_values[count] = NULL;
+    p->enum_count = count;
+    return b;
+}
+
+nebo_schema_builder_t *nebo_schema_object(nebo_schema_builder_t *b, const char *name,
+                                           const char *desc, int required) {
+    return add_prop(b, name, desc, "object", required);
 }
 
 char *nebo_schema_build(nebo_schema_builder_t *b) {
     if (!b) return NULL;
 
-    /* Pre-allocate a generous buffer */
-    size_t bufsize = 4096;
+    size_t bufsize = 8192;
     char *buf = malloc(bufsize);
     if (!buf) return NULL;
 
@@ -89,8 +121,17 @@ char *nebo_schema_build(nebo_schema_builder_t *b) {
     for (int i = 0; i < b->prop_count; i++) {
         schema_prop_t *p = &b->props[i];
         pos += snprintf(buf + pos, bufsize - pos,
-            ",\"%s\":{\"type\":\"%s\",\"description\":\"%s\"}",
+            ",\"%s\":{\"type\":\"%s\",\"description\":\"%s\"",
             p->name, p->type, p->desc);
+        if (p->enum_values) {
+            pos += snprintf(buf + pos, bufsize - pos, ",\"enum\":[");
+            for (int j = 0; j < p->enum_count; j++) {
+                if (j > 0) pos += snprintf(buf + pos, bufsize - pos, ",");
+                pos += snprintf(buf + pos, bufsize - pos, "\"%s\"", p->enum_values[j]);
+            }
+            pos += snprintf(buf + pos, bufsize - pos, "]");
+        }
+        pos += snprintf(buf + pos, bufsize - pos, "}");
     }
 
     pos += snprintf(buf + pos, bufsize - pos, "},\"required\":[\"action\"");
@@ -111,6 +152,11 @@ void nebo_schema_free(nebo_schema_builder_t *b) {
         free(b->props[i].name);
         free(b->props[i].desc);
         free(b->props[i].type);
+        if (b->props[i].enum_values) {
+            for (int j = 0; j < b->props[i].enum_count; j++)
+                free(b->props[i].enum_values[j]);
+            free(b->props[i].enum_values);
+        }
     }
     free(b);
 }
