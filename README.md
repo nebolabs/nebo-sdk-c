@@ -1,6 +1,6 @@
 # Nebo C SDK
 
-Official C SDK for building [Nebo](https://nebo.bot) apps.
+Official C SDK for building [Nebo](https://neboloop.com) apps.
 
 ## Build
 
@@ -46,4 +46,4 @@ int main(void) {
 
 ## Documentation
 
-See [Creating Nebo Apps](https://developer.neboloop.com/docs/creating-apps) for the full guide.
+See [Creating Nebo Apps](https://neboloop.com/developers) for the full guide.
