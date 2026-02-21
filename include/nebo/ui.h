@@ -1,6 +1,8 @@
 #ifndef NEBO_UI_H
 #define NEBO_UI_H
 
+#include "types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -9,6 +11,7 @@ extern "C" {
  * UI view and block types for structured UI apps.
  * These map to the 8 block types: text, heading, input, button, select,
  * toggle, divider, image.
+ * Used by the ViewBuilder for constructing UI content programmatically.
  */
 
 typedef struct {
@@ -53,11 +56,32 @@ typedef struct {
 } nebo_ui_event_result_t;
 
 /**
- * UI handler — implement this to render structured UI panels.
+ * HTTP request proxied from the browser to the app.
  */
 typedef struct {
-    int (*get_view)(const char *context, nebo_ui_view_t *out_view);
-    int (*on_event)(const nebo_ui_event_t *event, nebo_ui_event_result_t *out_result);
+    const char *method;
+    const char *path;
+    const char *query;
+    const nebo_string_map_t *headers;
+    const void *body;
+    int body_len;
+} nebo_http_request_t;
+
+/**
+ * HTTP response from the app back to the browser.
+ */
+typedef struct {
+    int status_code;
+    nebo_string_map_t *headers;
+    const void *body;
+    int body_len;
+} nebo_http_response_t;
+
+/**
+ * UI handler — implement this to serve HTTP-based UI panels.
+ */
+typedef struct {
+    int (*handle_request)(const nebo_http_request_t *req, nebo_http_response_t *resp);
 } nebo_ui_handler_t;
 
 #ifdef __cplusplus

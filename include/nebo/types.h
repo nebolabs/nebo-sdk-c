@@ -15,14 +15,69 @@ typedef struct {
 } nebo_string_map_t;
 
 /**
+ * Identifies who sent a message.
+ */
+typedef struct {
+    const char *name;
+    const char *role;
+    const char *bot_id;
+} nebo_message_sender_t;
+
+/**
+ * A file or media attachment.
+ */
+typedef struct {
+    const char *type;
+    const char *url;
+    const char *filename;
+    long long size;
+} nebo_attachment_t;
+
+/**
+ * An interactive element (button, keyboard row).
+ */
+typedef struct {
+    const char *label;
+    const char *callback_id;
+} nebo_message_action_t;
+
+/**
  * Inbound message from a channel.
  */
 typedef struct {
     const char *channel_id;
     const char *user_id;
     const char *text;
-    const char *metadata; /* JSON string */
+    const char *metadata; /* JSON string (legacy) */
+    /* v1 envelope fields */
+    const char *message_id;
+    const nebo_message_sender_t *sender;
+    const nebo_attachment_t *attachments;
+    int attachment_count;
+    const char *reply_to;
+    const nebo_message_action_t *actions;
+    int action_count;
+    const void *platform_data;
+    int platform_data_len;
+    const char *timestamp;
 } nebo_inbound_message_t;
+
+/**
+ * Outbound channel message envelope (for Send).
+ */
+typedef struct {
+    const char *channel_id;
+    const char *text;
+    const char *message_id;
+    const nebo_message_sender_t *sender;
+    const nebo_attachment_t *attachments;
+    int attachment_count;
+    const char *reply_to;
+    const nebo_message_action_t *actions;
+    int action_count;
+    const void *platform_data;
+    int platform_data_len;
+} nebo_channel_send_envelope_t;
 
 /**
  * Gateway message in a conversation.

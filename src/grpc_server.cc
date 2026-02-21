@@ -147,6 +147,30 @@ static int channel_push_trampoline(const nebo_inbound_message_t *msg, void *opaq
     if (msg->user_id)    im.set_user_id(msg->user_id);
     if (msg->text)       im.set_text(msg->text);
     if (msg->metadata)   im.set_metadata(msg->metadata);
+    /* v1 envelope fields */
+    if (msg->message_id) im.set_message_id(msg->message_id);
+    if (msg->sender) {
+        auto *s = im.mutable_sender();
+        if (msg->sender->name)   s->set_name(msg->sender->name);
+        if (msg->sender->role)   s->set_role(msg->sender->role);
+        if (msg->sender->bot_id) s->set_bot_id(msg->sender->bot_id);
+    }
+    for (int i = 0; i < msg->attachment_count; i++) {
+        auto *a = im.add_attachments();
+        if (msg->attachments[i].type)     a->set_type(msg->attachments[i].type);
+        if (msg->attachments[i].url)      a->set_url(msg->attachments[i].url);
+        if (msg->attachments[i].filename) a->set_filename(msg->attachments[i].filename);
+        a->set_size(msg->attachments[i].size);
+    }
+    if (msg->reply_to) im.set_reply_to(msg->reply_to);
+    for (int i = 0; i < msg->action_count; i++) {
+        auto *a = im.add_actions();
+        if (msg->actions[i].label)       a->set_label(msg->actions[i].label);
+        if (msg->actions[i].callback_id) a->set_callback_id(msg->actions[i].callback_id);
+    }
+    if (msg->platform_data && msg->platform_data_len > 0)
+        im.set_platform_data(msg->platform_data, msg->platform_data_len);
+    if (msg->timestamp) im.set_timestamp(msg->timestamp);
     return sc->writer->Write(im) ? 0 : -1;
 }
 
@@ -192,8 +216,60 @@ public:
     grpc::Status Send(grpc::ServerContext *, const apb::ChannelSendRequest *req,
                       apb::ChannelSendResponse *resp) override {
         if (!h_->send) return grpc::Status::OK;
-        int ret = h_->send(req->channel_id().c_str(), req->text().c_str());
-        if (ret != 0) resp->set_error("send failed");
+
+        /* Map proto sender */
+        nebo_message_sender_t sender{};
+        if (req->has_sender()) {
+            sender.name   = req->sender().name().c_str();
+            sender.role   = req->sender().role().c_str();
+            sender.bot_id = req->sender().bot_id().c_str();
+        }
+
+        /* Map proto attachments */
+        int att_count = req->attachments_size();
+        auto *atts = att_count > 0 ? new nebo_attachment_t[att_count]() : nullptr;
+        for (int i = 0; i < att_count; i++) {
+            auto &a = req->attachments(i);
+            atts[i].type     = a.type().c_str();
+            atts[i].url      = a.url().c_str();
+            atts[i].filename = a.filename().c_str();
+            atts[i].size     = a.size();
+        }
+
+        /* Map proto actions */
+        int act_count = req->actions_size();
+        auto *acts = act_count > 0 ? new nebo_message_action_t[act_count]() : nullptr;
+        for (int i = 0; i < act_count; i++) {
+            auto &a = req->actions(i);
+            acts[i].label       = a.label().c_str();
+            acts[i].callback_id = a.callback_id().c_str();
+        }
+
+        nebo_channel_send_envelope_t env{};
+        env.channel_id        = req->channel_id().c_str();
+        env.text              = req->text().c_str();
+        env.message_id        = req->message_id().c_str();
+        env.sender            = req->has_sender() ? &sender : nullptr;
+        env.attachments       = atts;
+        env.attachment_count  = att_count;
+        env.reply_to          = req->reply_to().c_str();
+        env.actions           = acts;
+        env.action_count      = act_count;
+        env.platform_data     = req->platform_data().data();
+        env.platform_data_len = (int)req->platform_data().size();
+
+        char *out_message_id = nullptr;
+        int ret = h_->send(&env, &out_message_id);
+
+        delete[] atts;
+        delete[] acts;
+
+        if (ret != 0) {
+            resp->set_error("send failed");
+        } else if (out_message_id) {
+            resp->set_message_id(out_message_id);
+            free(out_message_id);
+        }
         return grpc::Status::OK;
     }
 
@@ -317,31 +393,6 @@ public:
 
 /* ── UIBridge ────────────────────────────────────────────────────────── */
 
-static void view_c_to_proto(const nebo_ui_view_t *cv, apb::UIView *pv) {
-    if (cv->view_id) pv->set_view_id(cv->view_id);
-    if (cv->title)   pv->set_title(cv->title);
-    for (int i = 0; i < cv->block_count; i++) {
-        auto *pb_blk = pv->add_blocks();
-        const nebo_ui_block_t *cb = &cv->blocks[i];
-        if (cb->block_id)    pb_blk->set_block_id(cb->block_id);
-        if (cb->type)        pb_blk->set_type(cb->type);
-        if (cb->text)        pb_blk->set_text(cb->text);
-        if (cb->value)       pb_blk->set_value(cb->value);
-        if (cb->placeholder) pb_blk->set_placeholder(cb->placeholder);
-        if (cb->hint)        pb_blk->set_hint(cb->hint);
-        if (cb->variant)     pb_blk->set_variant(cb->variant);
-        if (cb->src)         pb_blk->set_src(cb->src);
-        if (cb->alt)         pb_blk->set_alt(cb->alt);
-        pb_blk->set_disabled(cb->disabled);
-        if (cb->style)       pb_blk->set_style(cb->style);
-        for (int j = 0; j < cb->options_count; j++) {
-            auto *opt = pb_blk->add_options();
-            if (cb->options[j].label) opt->set_label(cb->options[j].label);
-            if (cb->options[j].value) opt->set_value(cb->options[j].value);
-        }
-    }
-}
-
 class UIBridge final : public apb::UIService::Service {
     const nebo_ui_handler_t *h_;
     const nebo_app_t *app_;
@@ -353,46 +404,41 @@ public:
         return health_ok(resp, app_);
     }
 
-    grpc::Status GetView(grpc::ServerContext *, const apb::GetViewRequest *req,
-                         apb::UIView *resp) override {
-        if (!h_->get_view) return grpc::Status(grpc::UNIMPLEMENTED, "no get_view handler");
+    grpc::Status HandleRequest(grpc::ServerContext *, const apb::HttpRequest *req,
+                               apb::HttpResponse *resp) override {
+        if (!h_->handle_request) return grpc::Status(grpc::UNIMPLEMENTED, "no handle_request handler");
 
-        nebo_ui_view_t out{};
-        int ret = h_->get_view(req->context().c_str(), &out);
-        if (ret != 0) return grpc::Status(grpc::INTERNAL, "get_view failed");
+        /* Map proto headers to C string map */
+        const char **hdr_keys = nullptr, **hdr_vals = nullptr;
+        nebo_string_map_t headers{};
+        if (req->headers_size() > 0) headers = proto_map_to_c(req->headers(), &hdr_keys, &hdr_vals);
 
-        view_c_to_proto(&out, resp);
-        return grpc::Status::OK;
-    }
+        nebo_http_request_t creq{};
+        creq.method   = req->method().c_str();
+        creq.path     = req->path().c_str();
+        creq.query    = req->query().c_str();
+        creq.headers  = req->headers_size() > 0 ? &headers : nullptr;
+        creq.body     = req->body().data();
+        creq.body_len = (int)req->body().size();
 
-    grpc::Status SendEvent(grpc::ServerContext *, const apb::UIEvent *req,
-                           apb::UIEventResponse *resp) override {
-        if (!h_->on_event) return grpc::Status(grpc::UNIMPLEMENTED, "no on_event handler");
+        nebo_http_response_t cresp{};
+        int ret = h_->handle_request(&creq, &cresp);
 
-        nebo_ui_event_t evt{};
-        evt.view_id = req->view_id().c_str();
-        evt.block_id = req->block_id().c_str();
-        evt.action = req->action().c_str();
-        evt.value = req->value().c_str();
+        delete[] hdr_keys;
+        delete[] hdr_vals;
 
-        nebo_ui_event_result_t result{};
-        int ret = h_->on_event(&evt, &result);
-        if (ret != 0) return grpc::Status(grpc::INTERNAL, "on_event failed");
+        if (ret != 0) return grpc::Status(grpc::INTERNAL, "handle_request failed");
 
-        if (result.view) {
-            auto *pv = resp->mutable_view();
-            view_c_to_proto(result.view, pv);
+        resp->set_status_code(cresp.status_code);
+        if (cresp.body && cresp.body_len > 0)
+            resp->set_body(cresp.body, cresp.body_len);
+        if (cresp.headers) {
+            auto *m = resp->mutable_headers();
+            for (int i = 0; i < cresp.headers->count; i++) {
+                (*m)[cresp.headers->keys[i]] = cresp.headers->values[i];
+            }
         }
-        if (result.error) resp->set_error(result.error);
-        if (result.toast)  resp->set_toast(result.toast);
         return grpc::Status::OK;
-    }
-
-    grpc::Status StreamUpdates(grpc::ServerContext *, const apb::Empty *,
-                               grpc::ServerWriter<apb::UIView> *) override {
-        /* StreamUpdates requires a push callback for UIView. For now, not implemented
-           since the C SDK UIHandler doesn't have a streaming method yet. */
-        return grpc::Status(grpc::UNIMPLEMENTED, "StreamUpdates not yet supported");
     }
 
     grpc::Status Configure(grpc::ServerContext *, const apb::SettingsMap *req,
